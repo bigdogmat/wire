@@ -36,6 +36,7 @@ function Compiler:Process(root, inputs, outputs, persist, delta, includes) -- To
 	self.funcs = {}
 	self.dvars = {}
 	self.funcs_ret = {}
+	self.templates = {}
 	self.EnclosingFunctions = { --[[ { ReturnType: string } ]] }
 
 	for name, v in pairs(inputs) do
@@ -208,10 +209,71 @@ function Compiler:UDFunction(Sig)
 	end
 end
 
+function Compiler:FindTemplate(Fname, Fargs)
+	for _, template in ipairs(self.templates) do
+		local name = template[3]
+		local ret  = template[4]
+		local args = template[6]
+
+		local fillIn = {}
+
+		if not template[5] and Fname == name and Fmeta == meta and #Fargs == #args then
+			local isOk = true
+
+			for i = 1, #args do
+				if istable(args[i][2]) then
+					local tab = args[i][2]
+
+					if fillIn[tab] then
+						if fillIn[tab] ~= Fargs[i] then
+							isOk = false
+							break
+						end
+					else
+						fillIn[tab] = Fargs[i]
+
+						if ret == tab then
+							ret = Fargs[i]
+						end
+					end
+				elseif args[i][2] ~= Fargs[i] then
+					isOk = false
+					break
+				end
+			end
+
+			if isOk then
+				return template, ret
+			end
+		end
+	end
+end
+
+function Compiler:FindTemplateMeta(Fname, Fmeta, Fargs)
+	for _, template in ipairs(self.templates) do
+		local name = template[3]
+		local meta = template[5]
+		local args = template[6]
+
+		local argCount = #args - (meta and 1 or 0)
+
+		if Fname == name and Fmeta == meta and #Fargs == argCount then
+
+		end
+	end
+end
 
 function Compiler:GetFunction(instr, Name, Args)
 	local Params = table.concat(Args)
 	local Func = wire_expression2_funcs[Name .. "(" .. Params .. ")"]
+
+	if not Func then
+		local found, ret = self:FindTemplate(Name, Args)
+
+		if found then
+			Func = self:InstantiateTemplate(found, ret, Args)
+		end
+	end
 
 	if not Func then
 		Func = self:UDFunction(Name .. "(" .. Params .. ")")
@@ -238,6 +300,14 @@ end
 function Compiler:GetMethod(instr, Name, Meta, Args)
 	local Params = Meta .. ":" .. table.concat(Args)
 	local Func = wire_expression2_funcs[Name .. "(" .. Params .. ")"]
+
+	if not Func then
+		local found = self:FindTemplateMeta(Name, Meta, Args)
+
+		if found then
+			Func = self:InstantiateTemplate(found)
+		end
+	end
 
 	if not Func then
 		Func = self:UDFunction(Name .. "(" .. Params .. ")")
@@ -727,6 +797,91 @@ function Compiler:InstrFEA(args)
 	return {op[1], keyvar, valvar, tableexpr, stmt}
 end
 
+function Compiler:InstrFUNCTIONTEMPLATE(args)
+	self.templates[#self.templates + 1] = args
+	return {function() end}
+end
+
+function Compiler:InstantiateTemplate(args, meantRet, templated)
+	local name, ret, meta, arguments = args[3], meantRet, args[5], args[6]
+
+	local Sig = name .. "(" .. table.concat(templated) .. ")"
+
+	local OldScopes = self:SaveScopes()
+	self:InitScope() -- Create a new Scope Enviroment
+	self:PushScope()
+
+	for i, type in pairs(templated) do
+		self:SetLocalVariableType(arguments[i][1], type, args)
+	end
+
+	if self.funcs_ret[Sig] and self.funcs_ret[Sig] ~= ret then
+		local TP = tps_pretty(self.funcs_ret[Sig])
+		self:Error("Function " .. Sig .. " must be given return type " .. TP, args)
+	end
+
+	self.funcs_ret[Sig] = ret
+
+	table.insert(self.EnclosingFunctions, { ReturnType = ret })
+
+	local Stmt = self:EvaluateStatement(args, 5) -- Offset of -2
+
+	table.remove(self.EnclosingFunctions)
+
+	self:PopScope()
+	self:LoadScopes(OldScopes) -- Reload the old enviroment
+
+	-- This is the function that will be bound to to the function name, ie. the
+	-- one that's called at runtime when code calls the function
+	local function body(self, runtimeArgs)
+		-- runtimeArgs = { body, parameterExpression1, ..., parameterExpressionN, parameterTypes }
+		-- we need to evaluate the arguments before switching to the new scope
+		local parameterValues = {}
+		for parameterIndex = 2, #arguments + 1 do
+			local parameterExpression = runtimeArgs[parameterIndex]
+			local parameterValue = parameterExpression[1](self, parameterExpression)
+			parameterValues[parameterIndex - 1] = parameterValue
+		end
+
+		local OldScopes = self:SaveScopes()
+		self:InitScope()
+		self:PushScope()
+
+		for parameterIndex = 1, #arguments do
+			local parameterName = arguments[parameterIndex][1]
+			local parameterValue = parameterValues[parameterIndex]
+			self.Scope[parameterName] = parameterValue
+		end
+
+		self.func_rv = nil
+		local ok, msg = pcall(Stmt[1],self,Stmt)
+
+		self:PopScope()
+		self:LoadScopes(OldScopes)
+
+		-- a "C stack overflow" error will probably just confuse E2 users more than a "tick quota" error.
+		if not ok and msg:find( "C stack overflow" ) then error( "tick quota exceeded", -1 ) end
+
+		if not ok and msg == "return" then return self.func_rv end
+
+		if not ok then error(msg,0) end
+
+		if ret ~= "" then
+			local argNames = {}
+			local offset = methodType == "" and 0 or 1
+
+			for k, v in ipairs(arguments) do
+				argNames[k - offset] = v[1]
+			end
+
+			error("Function " .. E2Lib.generate_signature(Sig, nil, argNames) ..
+				" executed and didn't return a value - expecting a value of type " ..
+				E2Lib.typeName(ret), 0)
+		end
+	end
+
+	return {Sig, ret, body}
+end
 
 function Compiler:InstrFUNCTION(args)
 	-- args = { "function", trace, signature, return type, object type, { { parameter name, parameter type }... }, function body }

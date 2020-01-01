@@ -136,7 +136,7 @@ function ENT:Execute()
 
 	local bench = SysTime()
 
-	local ok, msg = pcall(self.script[1], self.context, self.script)
+	local ok, msg = xpcall(self.script[1], debug.traceback, self.context, self.script)
 	if not ok then
 		if msg == "exit" then
 		elseif msg == "perf" then
@@ -275,6 +275,8 @@ function ENT:CompileCode(buffer, files, filepath)
 
 	local status, script, inst = E2Lib.Compiler.Execute(tree, self.inports[3], self.outports[3], self.persists[3], dvars, self.includes)
 	if not status then self:Error(script) return end
+
+	PrintTable(script)
 
 	self.script = script
 	self.dvars = inst.dvars

@@ -33,6 +33,7 @@ EGP.Objects.Base.Receive = function( self )
 	local tbl = {}
 	EGP:ReceivePosSize( tbl )
 	EGP:ReceiveColor( tbl, self )
+	PrintTable(self)
 	EGP:ReceiveMaterial( tbl )
 	tbl.filtering = net.ReadUInt(2)
 	tbl.parent = net.ReadInt(16)

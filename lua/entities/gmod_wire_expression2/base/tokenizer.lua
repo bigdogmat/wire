@@ -171,6 +171,8 @@ function Tokenizer:NextSymbol()
 			tokenname = "fea"
 		elseif self.tokendata == "function" then
 			tokenname = "func"
+		elseif self.tokendata == "template" then
+			tokenname = "template"
 		elseif self.tokendata == "return" then
 			tokenname = "ret"
 		elseif self.tokendata == "void" then

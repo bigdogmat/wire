@@ -560,7 +560,37 @@ function Parser:Stmt9()
 end
 
 function Parser:Stmt10()
-	if self:AcceptRoamingToken("func") then
+	if self:AcceptRoamingToken("template") then
+		self:AcceptRoamingToken("lth")
+
+		local types = {}
+
+		while true do
+			if self:AcceptRoamingToken("com") then self:Error("Argument separator (,) must not appear multiple times") end
+
+			if self:AcceptRoamingToken("fun") then
+				local type = self:GetTokenData()
+
+				if types[type] then
+					self:Error("Identical template argument")
+				end
+				
+				types[type] = {}
+			end
+
+			if self:AcceptRoamingToken("gth") then
+				break
+			elseif not self:AcceptRoamingToken("com") then
+				self:NextToken()
+				self:Error("Right arrow expected after template arguments")
+			end
+		end
+
+		self.templateShit = types
+
+		if not self:AcceptRoamingToken("func") then
+			self:Error("Function declaraction expected after template")
+		end
 
 		local Trace = self:GetTokenTrace()
 
@@ -605,6 +635,116 @@ function Parser:Stmt10()
 				self:Error("Function return type must be lowercased", ReturnToken)
 			end
 
+			if self.templateShit[Return] then
+				Return = self.templateShit[Return]
+			else
+
+				if Return == "number" then Return = "normal" end
+
+				Return = Return:upper()
+
+				if not wire_expression_types[Return] then
+					self:Error("Invalid return argument '" .. E2Lib.limitString(Return:lower(), 10) .. "'", ReturnToken)
+				end
+
+				Return = wire_expression_types[Return][1]
+
+			end
+		else
+			Return = nil
+		end
+
+		if Type then -- check the Type
+
+			if Type ~= Type:lower() then self:Error("Function object type must be full lowercase", TypeToken) end
+
+			if Type == "number" then Type = "normal" end
+
+			if Type == "void" then self:Error("Void can not be used as function object type", TypeToken) end
+
+			Type = Type:upper()
+
+			if not wire_expression_types[Type] then
+				self:Error("Invalid data type '" .. E2Lib.limitString(Type:lower(), 10) .. "'", TypeToken)
+			end
+
+			Temp["This"] = true
+
+			Args[1] = { "This", Type }
+		else
+			Type = nil
+		end
+
+		if not Name then self:Error("Function name must follow function declaration") end
+
+		if Name[1] ~= Name[1]:lower() then self:Error("Function name must start with a lower case letter", NameToken) end
+
+
+		if not self:AcceptRoamingToken("lpa") then
+			self:Error("Left parenthesis (() must appear after function name")
+		end
+
+		self:FunctionArgs(Temp, Args)
+
+		self.templateShit = nil
+
+		for i = 1, #Args do
+			local type = Args[i][2]
+
+			if not istable(type) then
+				Args[i][2] = wire_expression_types[Args[i][2]][1]
+			end
+		end
+
+		local Inst = self:Instruction(Trace, "functiontemplate", Name, Return, Type, Args, self:Block("function decleration"))
+
+		return Inst
+	elseif self:AcceptRoamingToken("func") then
+
+		local Trace = self:GetTokenTrace()
+
+
+		local Name, Return, Type
+		local NameToken, ReturnToken, TypeToken
+		local Args, Temp = {}, {}
+
+
+		-- Errors are handeled after line 49, both 'fun' and 'var' tokens are used for accurate error reports.
+		if self:AcceptRoamingToken("fun") or self:AcceptRoamingToken("var") or self:AcceptRoamingToken("void") then --get the name
+			Name = self:GetTokenData()
+			NameToken = self.token -- Copy the current token for error reporting
+
+			-- We check if the previous token was actualy the return not the name
+			if self:AcceptRoamingToken("fun") or self:AcceptRoamingToken("var") or self:AcceptRoamingToken("void") then
+				Return = Name
+				ReturnToken = NameToken
+
+				Name = self:GetTokenData()
+				NameToken = self.token
+			end
+
+			-- We check if the name token is actualy the type
+			if self:AcceptRoamingToken("col") then
+				if self:AcceptRoamingToken("fun") or self:AcceptRoamingToken("var") then
+					Type = Name
+					TypeToken = NameToken
+
+					Name = self:GetTokenData()
+					NameToken = self.token
+				else
+					self:Error("Function name must appear after colon (:)")
+				end
+			end
+		end
+
+
+		if Return and Return ~= "void" then -- Check the retun value
+
+			if Return ~= Return:lower() then
+				self:Error("Function return type must be lowercased", ReturnToken)
+			end
+
+
 			if Return == "number" then Return = "normal" end
 
 			Return = Return:upper()
@@ -614,7 +754,6 @@ function Parser:Stmt10()
 			end
 
 			Return = wire_expression_types[Return][1]
-
 		else
 			Return = ""
 		end
@@ -755,16 +894,19 @@ function Parser:FunctionArg(Temp, Args)
 		end
 	end
 
-	if Type ~= Type:lower() then self:Error("Type must be lowercased") end
+	if self.templateShit and self.templateShit[Type] then
+		Type = self.templateShit[Type]
+	else
+		if Type ~= Type:lower() then self:Error("Type must be lowercased") end
 
-	if Type == "number" then Type = "normal" end
+		if Type == "number" then Type = "normal" end
 
-	Type = Type:upper()
+		Type = Type:upper()
 
-	if not wire_expression_types[Type] then
-		self:Error("Invalid type specified")
+		if not wire_expression_types[Type] then
+			self:Error("Invalid type specified")
+		end
 	end
-
 
 	Temp[Name] = true
 	Args[#Args + 1] = { Name, Type }
@@ -812,14 +954,18 @@ function Parser:FunctionArgList(Temp, Args)
 			end
 		end
 
-		if Type ~= Type:lower() then self:Error("Type must be lowercased") end
+		if self.templateShit and self.templateShit[Type] then
+			Type = {Type}
+		else
+			if Type ~= Type:lower() then self:Error("Type must be lowercased") end
 
-		if Type == "number" then Type = "normal" end
+			if Type == "number" then Type = "normal" end
 
-		Type = Type:upper()
+			Type = Type:upper()
 
-		if not wire_expression_types[Type] then
-			self:Error("Invalid type specified")
+			if not wire_expression_types[Type] then
+				self:Error("Invalid type specified")
+			end
 		end
 
 		for I = 1, #Vars do
