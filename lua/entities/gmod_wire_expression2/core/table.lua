@@ -20,6 +20,7 @@ local tbls = {
 -- Types not allowed in tables
 local blocked_types = {
 	xgt = true,
+	[""] = true,
 }
 
 --------------------------------------------------------------------------------
@@ -325,6 +326,33 @@ end)
 --------------------------------------------------------------------------------
 -- Common functions
 --------------------------------------------------------------------------------
+
+__e2setcost(1)
+
+e2function table table(kvarg aaa)
+	local tab = table.Copy(DEFAULT)
+
+	for k, v in pairs(aaa[1]) do
+		local keytype = aaa[2][k]
+		local valtype = aaa[3][k]
+
+		if not blocked_types[valtype] then
+			if keytype == 'n' then
+				tab.size = tab.size + 1
+				tab.n[k] = v
+				tab.ntypes[k] = valtype
+			elseif keytype == 's' then
+				tab.size = tab.size + 1
+				tab.s[k] = v
+				tab.stypes[k] = valtype
+			end
+		end
+	end
+
+	self.prf = self.prf + tab.size * opcost
+
+	return tab
+end
 
 __e2setcost(1)
 

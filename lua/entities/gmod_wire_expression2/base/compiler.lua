@@ -989,6 +989,27 @@ function Compiler:InstrRETURN(args)
 	return { self:GetOperator(args, "return", {})[1], value, actualType }
 end
 
+function Compiler:InstrKVARG(args)
+	local argss = {{}, {}, {}, {}}
+
+	for i = 1, #args[3][2] do
+		local key, keytype
+
+		if args[3][1][i] then
+			key, keytype = self:Evaluate(args[3][1], i - 2)
+		end
+
+		local val, valtype = self:Evaluate(args[3][2], i - 2)
+
+		argss[1][i] = key
+		argss[2][i] = val
+		argss[3][i] = keytype
+		argss[4][i] = valtype
+	end
+
+	return {self:GetOperator(args, "kvarg", {})[1], argss}, "xkv"
+end
+
 function Compiler:InstrKVTABLE(args)
 	-- args = { "kvtable", trace, { key expression = value expression... } }
 	local s = {}

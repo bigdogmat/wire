@@ -63,6 +63,23 @@ e2function array array(...)
 	return ret
 end
 
+__e2setcost(1)
+e2function array array(kvarg aaa)
+	local ret = {}
+
+	for k, v in pairs(aaa[1]) do
+		local keytype = aaa[2][k]
+		local valtype = aaa[3][k]
+
+		if not blocked_types[valtype] and keytype == 'n' then
+			self.prf = self.prf + 1 / 3
+			ret[k] = v
+		end
+	end
+
+	return ret
+end
+
 registerOperator( "kvarray", "", "r", function( self, args )
 	local ret = {}
 

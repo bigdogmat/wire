@@ -1403,55 +1403,37 @@ function Parser:Expr16()
 		if self:AcceptRoamingToken("rpa") then
 			return self:Instruction(trace, "call", fun, {})
 		else
-
 			local exprs = {}
 
-			-- Special case for "table( str=val, str=val, str=val, ... )" (or array)
-			if fun == "table" or fun == "array" then
-				local kvtable = false
+			local args = {{}, {}}
+			local kvargs = false
 
+			local count = 0
+			while true do
+				count = count + 1
 				local key = self:Expr1()
+				local value
 
 				if self:AcceptRoamingToken("ass") then
-					if self:AcceptRoamingToken("rpa") then
-						self:Error("Expression expected, got right paranthesis ())", self:GetToken())
-					end
-
-					exprs[key] = self:Expr1()
-
-					kvtable = true
-				else -- If it isn't a "table( str=val, ...)", then it's a "table( val,val,val,... )"
-					exprs = { key }
+					value = self:Expr1()
+					kvargs = true
+				else
+					value = key
+					key = nil
 				end
 
-				if kvtable then
-					while self:AcceptRoamingToken("com") do
-						local key = self:Expr1()
-						local token = self:GetToken()
+				args[1][count] = key
+				args[2][count] = value
 
-						if self:AcceptRoamingToken("ass") then
-							if self:AcceptRoamingToken("rpa") then
-								self:Error("Expression expected, got right paranthesis ())", self:GetToken())
-							end
-
-							exprs[key] = self:Expr1()
-						else
-							self:Error("Assignment operator (=) missing, to complete expression", token)
-						end
-					end
-
-					if not self:AcceptRoamingToken("rpa") then
-						self:Error("Right parenthesis ()) missing, to close function argument list", self:GetToken())
-					end
-
-					return self:Instruction(trace, "kv" .. fun, exprs)
+				if not self:AcceptRoamingToken("com") then
+					break
 				end
-			else
-				exprs = { self:Expr1() }
 			end
 
-			while self:AcceptRoamingToken("com") do
-				exprs[#exprs + 1] = self:Expr1()
+			if kvargs then
+				exprs[1] = self:Instruction(trace, "kvarg", args)
+			else
+				exprs = args[2]
 			end
 
 			if not self:AcceptRoamingToken("rpa") then
